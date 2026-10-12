@@ -149,6 +149,12 @@ func NewConn(pc *webrtc.PeerConnection) *Conn {
 		// Declared out here so the read-loop exit paths below can name the session in their logs.
 		var connID int64
 		var badRTP int
+
+		// Passive diagnostics for Nest H264 RTP continuity.
+		// This MUST NOT alter packet flow or recovery behaviour.
+		var haveVideoSeq bool
+		var lastVideoSeq uint16
+		var videoSeqAnomalies int
 		if isNestVideoTrack {
 			nestVideoSeen.Store(true) // disarms the connect watchdog in OnConnectionStateChange
 		}
@@ -359,6 +365,72 @@ func NewConn(pc *webrtc.PeerConnection) *Conn {
 					continue
 				}
 				return
+			}
+
+			// Passive Nest H264 RTP sequence diagnostics.
+			//
+			// Include padding packets because they also consume RTP sequence
+			// numbers. This block only logs; it never drops or reorders packets.
+			if isNestVideo {
+				seq := packet.SequenceNumber
+
+				if !haveVideoSeq {
+					haveVideoSeq = true
+					lastVideoSeq = seq
+				} else {
+					delta := uint16(seq - lastVideoSeq)
+
+					switch {
+					case delta == 1:
+						// Normal next packet.
+						lastVideoSeq = seq
+
+					case delta > 1 && delta < 0x8000:
+						// Forward jump: one or more sequence numbers were not seen.
+						videoSeqAnomalies++
+						zlog.Warn().
+							Int64("conn", connID).
+							Int("last", int(lastVideoSeq)).
+							Int("expected", int(lastVideoSeq+1)).
+							Int("got", int(seq)).
+							Int("missing", int(delta-1)).
+							Uint32("rtp_ts", packet.Timestamp).
+							Uint32("ssrc", packet.SSRC).
+							Bool("marker", packet.Marker).
+							Int("anomaly", videoSeqAnomalies).
+							Msg("nest: H264 RTP forward sequence gap")
+
+						lastVideoSeq = seq
+
+					case delta == 0:
+						// Exact duplicate.
+						videoSeqAnomalies++
+						zlog.Warn().
+							Int64("conn", connID).
+							Int("seq", int(seq)).
+							Uint32("rtp_ts", packet.Timestamp).
+							Uint32("ssrc", packet.SSRC).
+							Bool("marker", packet.Marker).
+							Int("anomaly", videoSeqAnomalies).
+							Msg("nest: H264 RTP duplicate packet")
+
+					default:
+						// Packet arrived behind the highest sequence number seen.
+						// Do not move the baseline backwards.
+						videoSeqAnomalies++
+						zlog.Warn().
+							Int64("conn", connID).
+							Int("last", int(lastVideoSeq)).
+							Int("expected", int(lastVideoSeq+1)).
+							Int("got", int(seq)).
+							Int("behind", int(uint16(lastVideoSeq-seq))).
+							Uint32("rtp_ts", packet.Timestamp).
+							Uint32("ssrc", packet.SSRC).
+							Bool("marker", packet.Marker).
+							Int("anomaly", videoSeqAnomalies).
+							Msg("nest: H264 RTP late/reordered packet")
+					}
+				}
 			}
 
 			if len(packet.Payload) == 0 {
