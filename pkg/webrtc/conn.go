@@ -11,7 +11,6 @@ import (
 
 	"github.com/AlexxIT/go2rtc/pkg/core"
 	"github.com/AlexxIT/go2rtc/pkg/h264"
-	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
 	"github.com/pion/rtp/codecs"
 	"github.com/pion/webrtc/v4"
@@ -174,42 +173,18 @@ func NewConn(pc *webrtc.PeerConnection) *Conn {
 		nestEpoch := time.Now()
 		var lastVideoNS, lastIDRNS atomic.Int64
 
-		// Patched: also request periodic keyframes for the Nest source (ModeActiveProducer,
-		// FormatName "nest/webrtc"). Upstream only does this for PassiveProducer (WHIP/browser
-		// push). Gating on FormatName (not the mode) avoids forcing 2s IDRs on other
-		// ActiveProducer WebRTC sources (ring/tuya battery cams etc.) where it'd be harmful.
-		// Keeps keyframes ~2s fresh so RTSP consumers (Homebridge live view) start fast.
-		if (c.Mode == core.ModePassiveProducer || c.FormatName == "nest/webrtc") && remote.Kind() == webrtc.RTPCodecTypeVideo {
-			go func() {
-				ssrc := uint32(remote.SSRC())
-				t := time.NewTicker(time.Second * 2)
-				defer t.Stop()
-				for range t.C {
-					// Plain PLI. FIR escalation was removed: production traces (2026-07-22 17:12 UTC
-					// drought) show Nest IGNORES FIR during its post-motion upload window — idr_age
-					// climbed past 11s while FIR was sent 5 times. The only thing that ends the
-					// drought is a fresh session (the re-dial in the watchdog below), so there is no
-					// point spending RTCP on an in-band keyframe request the camera won't honor.
-					pkts := []rtcp.Packet{&rtcp.PictureLossIndication{MediaSSRC: ssrc}}
-					if err := pc.WriteRTCP(pkts); err != nil {
-						return
-					}
-				}
-			}()
-		}
-
 		// Patched: capture SPS/PPS from the Nest H264 stream and append sprop-parameter-sets to
 		// the codec FmtpLine, so RTSP consumers (Homebridge live view via ffmpeg) learn video
 		// dimensions from the DESCRIBE SDP and start fast instead of waiting for an in-band
 		// keyframe + probe (~3.7s -> near-instant). Google's WebRTC SDP has profile-level-id but
 		// no sprop; SPS/PPS arrive in-band (usually bundled in a STAP-A). Upstream does the
-		// equivalent for H265 (pkg/dvrip). Gated on FormatName like the PLI patch above.
+		// equivalent for H265 (pkg/dvrip). Gated on the Nest FormatName.
 		//
 		// Note (accepted race): FmtpLine is appended from this receive goroutine without a
-		// lock. In practice SPS/PPS are captured within the first few frames (the 2s PLI above
-		// forces an early keyframe), before any RTSP consumer's DESCRIBE clones the codec, so
+		// lock. In practice SPS/PPS are captured within the first few frames from the
+		// camera's normal H264 stream, before any RTSP consumer's DESCRIBE clones the codec, so
 		// the write happens-before the read. A -race build could flag a consumer connecting
-		// during the sub-2s warm-up window; upstream's H265 append in pkg/dvrip is unguarded
+		// during the brief warm-up window; upstream's H265 append in pkg/dvrip is unguarded
 		// the same way. Codec.Match ignores FmtpLine, so this can't affect media matching.
 		// Left lock-free to mirror upstream; documented rather than hidden.
 		captureSprop := c.FormatName == "nest/webrtc" && codec.Name == core.CodecH264 &&
