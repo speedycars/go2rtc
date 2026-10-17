@@ -11,6 +11,7 @@ import (
 
 	"github.com/AlexxIT/go2rtc/pkg/core"
 	"github.com/AlexxIT/go2rtc/pkg/h264"
+	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
 	"github.com/pion/rtp/codecs"
 	"github.com/pion/webrtc/v4"
@@ -133,7 +134,7 @@ func NewConn(pc *webrtc.PeerConnection) *Conn {
 			}
 		}
 
-		// Nest drought-recovery state, shared by the PLI ticker and the stall watchdog below.
+		// Nest drought-recovery state used by the stall watchdog below.
 		// A Nest camera stops sending keyframes (sometimes all RTP) for ~12-24s while it processes
 		// its own event clip after motion; established consumers then can't decode. The camera
 		// ignores in-band keyframe requests (FIR) during this window, so recovery is a close/re-dial
@@ -172,6 +173,27 @@ func NewConn(pc *webrtc.PeerConnection) *Conn {
 		// keeps the plain atomics and stays on the monotonic clock.
 		nestEpoch := time.Now()
 		var lastVideoNS, lastIDRNS atomic.Int64
+
+		// Passive WebRTC producers need periodic keyframe requests so consumers
+		// joining an already-running stream can start decoding promptly.
+		// Nest is intentionally excluded: on Nest Hello Gen1, forced periodic
+		// PLIs cause visible video stalls while the camera generates the IDR.
+		if c.Mode == core.ModePassiveProducer && remote.Kind() == webrtc.RTPCodecTypeVideo {
+			go func() {
+				ssrc := uint32(remote.SSRC())
+				t := time.NewTicker(time.Second * 2)
+				defer t.Stop()
+
+				for range t.C {
+					pkts := []rtcp.Packet{
+						&rtcp.PictureLossIndication{MediaSSRC: ssrc},
+					}
+					if err := pc.WriteRTCP(pkts); err != nil {
+						return
+					}
+				}
+			}()
+		}
 
 		// Patched: capture SPS/PPS from the Nest H264 stream and append sprop-parameter-sets to
 		// the codec FmtpLine, so RTSP consumers (Homebridge live view via ffmpeg) learn video
