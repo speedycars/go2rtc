@@ -153,6 +153,8 @@ func NewConn(pc *webrtc.PeerConnection) *Conn {
 		var nestReorder nestRTPReorder
 		var nestWaitPartitionHead bool
 		var nestPartitionHead codecs.H264Packet
+		var rtxDiag nestRTXDiagnostics
+		lastRTXReport := time.Now()
 		if isNestVideoTrack {
 			nestVideoSeen.Store(true) // disarms the connect watchdog in OnConnectionStateChange
 		}
@@ -245,6 +247,9 @@ func NewConn(pc *webrtc.PeerConnection) *Conn {
 			lastVideoNS.Store(now)
 			lastIDRNS.Store(now)
 			connID = nestConnSeq.Add(1)
+			defer func() {
+				rtxDiag.log(connID, time.Since(nestEpoch), true)
+			}()
 			zlog.Debug().Int64("conn", connID).Msg("nest: stall watchdog armed")
 			stallDone := make(chan struct{})
 			defer close(stallDone)
@@ -287,7 +292,7 @@ func NewConn(pc *webrtc.PeerConnection) *Conn {
 
 		for {
 			b := make([]byte, ReceiveMTU)
-			n, _, err := remote.Read(b)
+			n, attributes, err := remote.Read(b)
 			if err != nil {
 				// Patched (Nest): a fatal read ends THIS goroutine, and with it the deferred
 				// close(stallDone) tears down the stall watchdog -- so the one thing that would
@@ -362,6 +367,7 @@ func NewConn(pc *webrtc.PeerConnection) *Conn {
 				return
 			}
 
+			isRTX := isNestVideo && nestWasRTX(attributes)
 			if len(packet.Payload) != 0 && isNestVideo {
 				lastVideoNS.Store(int64(time.Since(nestEpoch)))
 				if isRTPKeyframe(packet.Payload) {
@@ -406,7 +412,12 @@ func NewConn(pc *webrtc.PeerConnection) *Conn {
 			}
 
 			if isNestVideo {
-				result := nestReorder.push(packet, time.Now())
+				now := time.Now()
+				result := rtxDiag.push(&nestReorder, packet, now, isRTX)
+				if now.Sub(lastRTXReport) >= time.Minute {
+					rtxDiag.log(connID, time.Since(nestEpoch), false)
+					lastRTXReport = now
+				}
 
 				if result.reanchored {
 					zlog.Warn().

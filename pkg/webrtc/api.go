@@ -297,6 +297,33 @@ func RegisterDefaultCodecs(m *webrtc.MediaEngine) error {
 			},
 			PayloadType: 98, // Chrome v110 - PayloadType: 112
 		},
+
+		// RFC 4588 retransmission codecs for H.264.
+		// Each RTX payload type references its primary codec via apt.
+		{
+			RTPCodecCapability: webrtc.RTPCodecCapability{
+				MimeType:    webrtc.MimeTypeRTX,
+				ClockRate:   90000,
+				SDPFmtpLine: "apt=96",
+			},
+			PayloadType: 99,
+		},
+		{
+			RTPCodecCapability: webrtc.RTPCodecCapability{
+				MimeType:    webrtc.MimeTypeRTX,
+				ClockRate:   90000,
+				SDPFmtpLine: "apt=97",
+			},
+			PayloadType: 102,
+		},
+		{
+			RTPCodecCapability: webrtc.RTPCodecCapability{
+				MimeType:    webrtc.MimeTypeRTX,
+				ClockRate:   90000,
+				SDPFmtpLine: "apt=98",
+			},
+			PayloadType: 103,
+		},
 		// macOS Safari 15.1
 		{
 			RTPCodecCapability: webrtc.RTPCodecCapability{
