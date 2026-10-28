@@ -1,9 +1,9 @@
 # Nest WebRTC / RTX — tested Frigate integration release
 
-**Suggested Git tag:** `v1.9.14-nest-rtx.1`
+**Release tag:** `v1.9.14-nest-rtx.1`
 **Scope:** community-maintained go2rtc 1.9.14-derived build for a first-generation *wired Nest Hello migrated to Google Home*.
 
-> This tag and release have **not yet been created**. Publish only after the exact source changes and tagged binary have been independently verified and tested. This is a tested configuration, **not** a promise of universal compatibility or permanent support for Google's API.
+> This is a tested community-specific build, not a guarantee of universal Nest compatibility or permanent support for Google's API.
 
 ## Summary
 
