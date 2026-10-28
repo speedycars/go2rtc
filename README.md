@@ -1,3 +1,18 @@
+> [!IMPORTANT]
+> **Nest 1st Gen (migrated to Google Home) + Frigate + Home Assistant — tested community fork**
+>
+> This fork contains Nest/WebRTC H.264 RTP reorder improvements and RTX (retransmission) support, tested with a **first-generation wired Nest Hello doorbell migrated from the Nest app to Google Home**.
+>
+> Our use case is **24/7 self-hosted Frigate recording and object detection, integrated into Home Assistant, without a Nest Aware subscription**. A **Google Device Access / SDM account (one-time US$5 registration fee)** and ongoing Google cloud connectivity remain necessary; this is **not** an offline or cloud-free Nest conversion.
+>
+> **Tested stack:** Nest Hello 1st Gen → Google SDM WebRTC (H.264/Opus) → modified go2rtc (RTP reorder + negotiated RTX) → Frigate 0.18.1 (H.264 recording, AAC audio, 15 FPS source) → Home Assistant / Frigate integration. Three days of apparently stable use after the final FFmpeg input-timestamp change, as of **2026-10-28**. Not a guarantee for all Nest models or future Google API changes.
+>
+> **Credits:** Based on [AlexxIT/go2rtc](https://github.com/AlexxIT/go2rtc) and Nest/WebRTC improvements and validation from [@ajplotkin](https://github.com/ajplotkin) ([ajplotkin/go2rtc](https://github.com/ajplotkin/go2rtc)). The Nest H.264 RTP reorder/re-anchor work benefited from his code review and extended multi-camera soak testing. This fork adds negotiated H.264 RTX support, diagnostics, and the documented Frigate configuration. See Git history for precise authorship.
+>
+> **Install, sample configuration, validation data, and troubleshooting:** [Nest / Google Home / Frigate / Home Assistant guide](docs/NEST_GOOGLE_HOME_FRIGATE.md).  **Release information:** [Nest fork release notes](RELEASE_NOTES_NEST.md).
+
+---
+
 <h1 align="center">
   <a href="https://github.com/AlexxIT/go2rtc">
     <img src="./website/images/logo.gif" alt="go2rtc - GitHub">
